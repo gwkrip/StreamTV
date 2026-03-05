@@ -18,11 +18,10 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
     }
-    versionCatalogs {
-        create("libs") {
-            from(files("gradle/libs.versions.toml"))
-        }
-    }
+    // gradle/libs.versions.toml is auto-discovered by Gradle 8.1+.
+    // Do NOT add versionCatalogs { from(...) } here — Gradle would
+    // then call from() twice and throw:
+    //   "you can only call the 'from' method a single time"
 }
 
 rootProject.name = "StreamTV"
