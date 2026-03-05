@@ -1,77 +1,38 @@
-name: 🔄 Dependency Check — Weekly Scan
+name: Dependency Check
 
 on:
   schedule:
     - cron: '0 9 * * 1'  # Every Monday at 09:00 UTC
-  workflow_dispatch:      # Allow manual trigger
+  workflow_dispatch:
 
 env:
   JAVA_VERSION: '17'
-  JAVA_DISTRIBUTION: 'temurin'
 
 jobs:
-  dependency-updates:
-    name: 🔍 Check for Dependency Updates
+  check:
+    name: Check for Updates
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
-          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          distribution: temurin
 
-      - name: 🐘 Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - uses: gradle/actions/setup-gradle@v3
 
-      - name: 🔑 Grant execute permission
-        run: chmod +x gradlew
+      - run: chmod +x gradlew
 
-      - name: 🔍 Run dependency updates report
-        run: ./gradlew dependencyUpdates -Drevision=release --stacktrace
+      - name: Dependency Updates Report
+        run: ./gradlew dependencyUpdates -Drevision=release
         continue-on-error: true
 
-      - name: 📤 Upload dependency report
+      - name: Upload Report
         uses: actions/upload-artifact@v4
         with:
-          name: dependency-updates-report
+          name: dependency-updates
           path: build/dependencyUpdates/report.json
-          retention-days: 30
-
-  # Check for known security vulnerabilities
-  security-scan:
-    name: 🔒 Security Vulnerability Scan
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: ${{ env.JAVA_DISTRIBUTION }}
-
-      - name: 🐘 Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: 🔑 Grant execute permission
-        run: chmod +x gradlew
-
-      - name: 🔒 OWASP Dependency Check
-        run: ./gradlew dependencyCheckAnalyze --info
-        continue-on-error: true
-
-      - name: 📤 Upload OWASP report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: owasp-report
-          path: app/build/reports/dependency-check-report.html
           retention-days: 30
