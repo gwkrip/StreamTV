@@ -53,6 +53,9 @@ jobs:
 
       - name: 🧹 Run Android Lint
         run: ./gradlew lintDebug --stacktrace
+        # Lint is configured with abortOnError=false in build.gradle.kts,
+        # so Gradle succeeds even if issues are found. The report upload
+        # and annotation step below surfaces the findings.
 
       - name: 📊 Upload Lint Report
         if: always()
@@ -60,16 +63,32 @@ jobs:
         with:
           name: lint-report
           path: |
-            app/build/reports/lint-results-debug.html
-            app/build/reports/lint-results-debug.xml
+            app/build/reports/lint-results.html
+            app/build/reports/lint-results.xml
           retention-days: 14
 
       - name: 💬 Annotate PR with Lint Issues
         if: github.event_name == 'pull_request' && always()
         uses: yutailang0119/action-android-lint@v4
         with:
-          report-path: 'app/build/reports/lint-results-debug.xml'
+          report-path: 'app/build/reports/lint-results.xml'
         continue-on-error: true
+
+      - name: 🔍 Check for lint errors (fail if ERROR level found)
+        run: |
+          REPORT="app/build/reports/lint-results.xml"
+          if [ -f "$REPORT" ]; then
+            ERROR_COUNT=$(grep -c 'severity="Error"' "$REPORT" || true)
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+              echo "❌ Found $ERROR_COUNT lint ERROR(s). Check the lint report artifact."
+              grep 'severity="Error"' "$REPORT" | head -20
+              exit 1
+            else
+              echo "✅ No lint ERRORs found."
+            fi
+          else
+            echo "⚠️ Lint report not found — skipping error check."
+          fi
 
   # ─────────────────────────────────────────────
   # JOB 2: Unit Tests

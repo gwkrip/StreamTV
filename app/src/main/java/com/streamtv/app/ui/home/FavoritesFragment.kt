@@ -10,11 +10,11 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.navigation.fragment.findNavController
 import com.streamtv.app.data.model.Channel
 import com.streamtv.app.data.model.UiState
 import com.streamtv.app.databinding.FragmentFavoritesBinding
 import com.streamtv.app.ui.channels.ChannelAdapter
+import com.streamtv.app.ui.player.PlayerActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 
@@ -57,9 +57,7 @@ class FavoritesFragment : Fragment() {
 
     private fun onChannelClick(channel: Channel) {
         viewModel.onChannelWatched(channel.id)
-        findNavController().navigate(
-            FavoritesFragmentDirections.actionFavoritesToPlayer(channel)
-        )
+        PlayerActivity.start(requireContext(), channel)
     }
 
     override fun onDestroyView() {

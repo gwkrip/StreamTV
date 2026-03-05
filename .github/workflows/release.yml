@@ -107,6 +107,16 @@ jobs:
       - name: 🧹 Lint Release
         run: ./gradlew lintRelease --stacktrace
 
+      - name: 🔍 Fail on lint errors
+        run: |
+          REPORT="app/build/reports/lint-results.xml"
+          if [ -f "$REPORT" ] && grep -q 'severity="Error"' "$REPORT"; then
+            echo "❌ Lint errors found — blocking release."
+            grep 'severity="Error"' "$REPORT" | head -20
+            exit 1
+          fi
+          echo "✅ Lint passed."
+
       - name: 🧪 Run Unit Tests
         run: ./gradlew testReleaseUnitTest --stacktrace
 

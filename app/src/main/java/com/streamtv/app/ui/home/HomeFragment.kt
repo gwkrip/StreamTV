@@ -16,6 +16,7 @@ import com.streamtv.app.data.model.Channel
 import com.streamtv.app.data.model.UiState
 import com.streamtv.app.databinding.FragmentHomeBinding
 import com.streamtv.app.ui.channels.ChannelAdapter
+import com.streamtv.app.ui.player.PlayerActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 
@@ -107,9 +108,7 @@ class HomeFragment : Fragment() {
 
     private fun onChannelClick(channel: Channel) {
         viewModel.onChannelWatched(channel.id)
-        findNavController().navigate(
-            HomeFragmentDirections.actionHomeToPlayer(channel)
-        )
+        PlayerActivity.start(requireContext(), channel)
     }
 
     private fun onFavoriteClick(channel: Channel) {

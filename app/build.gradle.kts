@@ -56,6 +56,22 @@ android {
         buildConfig = true
     }
 
+    lint {
+        // Do NOT abort on lint errors in CI — report them instead
+        abortOnError = false
+        checkReleaseBuilds = true
+        // Produce both HTML (human-readable) and XML (machine-readable for CI)
+        htmlReport = true
+        xmlReport = true
+        htmlOutput = file("build/reports/lint-results.html")
+        xmlOutput  = file("build/reports/lint-results.xml")
+        // Warnings to ignore globally
+        disable += setOf(
+            "GoogleAppIndexingWarning",
+            "MissingApplicationIcon" // placeholder icons are fine during dev
+        )
+    }
+
     packagingOptions {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

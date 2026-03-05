@@ -18,9 +18,6 @@
         <action
             android:id="@+id/action_home_to_settings"
             app:destination="@id/settingsFragment" />
-        <action
-            android:id="@+id/action_home_to_player"
-            app:destination="@id/playerActivity" />
     </fragment>
 
     <!-- Channels -->
@@ -28,17 +25,14 @@
         android:id="@+id/channelsFragment"
         android:name="com.streamtv.app.ui.channels.ChannelsFragment"
         android:label="Channels"
-        tools:layout="@layout/fragment_channels">
-        <action
-            android:id="@+id/action_channels_to_player"
-            app:destination="@id/playerActivity" />
-    </fragment>
+        tools:layout="@layout/fragment_channels" />
 
     <!-- Favorites -->
     <fragment
         android:id="@+id/favoritesFragment"
         android:name="com.streamtv.app.ui.home.FavoritesFragment"
-        android:label="Favorites" />
+        android:label="Favorites"
+        tools:layout="@layout/fragment_favorites" />
 
     <!-- Settings -->
     <fragment
@@ -46,15 +40,5 @@
         android:name="com.streamtv.app.ui.settings.SettingsFragment"
         android:label="Settings"
         tools:layout="@layout/fragment_settings" />
-
-    <!-- Player Activity -->
-    <activity
-        android:id="@+id/playerActivity"
-        android:name="com.streamtv.app.ui.player.PlayerActivity"
-        android:label="Player">
-        <argument
-            android:name="extra_channel"
-            app:argType="com.streamtv.app.data.model.Channel" />
-    </activity>
 
 </navigation>
