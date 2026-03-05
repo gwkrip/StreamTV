@@ -1,0 +1,151 @@
+name: 🔎 PR Check — Quick Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DISTRIBUTION: 'temurin'
+
+jobs:
+  # Skip draft PRs
+  check-draft:
+    name: 🔍 Check if Draft
+    runs-on: ubuntu-latest
+    outputs:
+      is_draft: ${{ steps.check.outputs.is_draft }}
+    steps:
+      - id: check
+        run: echo "is_draft=${{ github.event.pull_request.draft }}" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────
+  # Quick validation — runs in parallel
+  # ─────────────────────────────────────────────
+  validate:
+    name: ⚡ Quick Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: check-draft
+    if: needs.check-draft.outputs.is_draft == 'false'
+
+    strategy:
+      fail-fast: false
+      matrix:
+        task:
+          - name: "Lint"
+            command: "lintDebug"
+          - name: "Unit Tests"
+            command: "testDebugUnitTest"
+          - name: "Kotlin Compile"
+            command: "compileDebugKotlin"
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: 🐘 Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 🔑 Grant execute permission
+        run: chmod +x gradlew
+
+      - name: ▶️ Run — ${{ matrix.task.name }}
+        run: ./gradlew ${{ matrix.task.command }} --stacktrace
+
+      - name: 📤 Upload ${{ matrix.task.name }} Report
+        if: always() && matrix.task.name == 'Lint'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-lint-report-${{ github.event.pull_request.number }}
+          path: app/build/reports/lint-results-debug.html
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # PR Size Check
+  # ─────────────────────────────────────────────
+  pr-size:
+    name: 📏 PR Size Check
+    runs-on: ubuntu-latest
+    needs: check-draft
+    if: needs.check-draft.outputs.is_draft == 'false'
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📏 Check PR size
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+
+            const additions = pr.additions;
+            const deletions = pr.deletions;
+            const total = additions + deletions;
+
+            let size, emoji, advice;
+            if (total < 50)        { size = 'XS'; emoji = '🟢'; advice = 'Excellent! Small and focused.'; }
+            else if (total < 200)  { size = 'S';  emoji = '🟢'; advice = 'Good size. Easy to review.'; }
+            else if (total < 500)  { size = 'M';  emoji = '🟡'; advice = 'Medium. Try to break it up if possible.'; }
+            else if (total < 1000) { size = 'L';  emoji = '🟠'; advice = 'Large PR. Consider splitting into smaller PRs.'; }
+            else                   { size = 'XL'; emoji = '🔴'; advice = '⚠️ Very large PR! Please split if possible.'; }
+
+            const body = `## ${emoji} PR Size: **${size}**\n\n| Metric | Count |\n|---|---|\n| ➕ Additions | ${additions} |\n| ➖ Deletions | ${deletions} |\n| 📝 Total changes | ${total} |\n\n> ${advice}`;
+
+            // Find existing size comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            const existing = comments.find(c => c.user.type === 'Bot' && c.body.includes('PR Size'));
+            
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
+
+            if (total > 1000) {
+              core.warning(`PR is very large (${total} lines changed). Consider splitting it.`);
+            }
+
+  # ─────────────────────────────────────────────
+  # PR Summary Status
+  # ─────────────────────────────────────────────
+  pr-status:
+    name: ✅ PR Ready
+    runs-on: ubuntu-latest
+    needs: [validate, pr-size]
+    if: always()
+
+    steps:
+      - name: ✅ All checks passed
+        if: needs.validate.result == 'success'
+        run: echo "✅ PR is ready for review!"
+
+      - name: ❌ Checks failed
+        if: needs.validate.result == 'failure'
+        run: |
+          echo "❌ PR checks failed. Please fix the issues above."
+          exit 1

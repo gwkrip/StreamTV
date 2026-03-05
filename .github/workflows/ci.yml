@@ -1,0 +1,197 @@
+name: 🔍 CI — Lint, Test & Build Debug
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+      - 'fix/**'
+      - 'hotfix/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DISTRIBUTION: 'temurin'
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+
+jobs:
+  # ─────────────────────────────────────────────
+  # JOB 1: Lint
+  # ─────────────────────────────────────────────
+  lint:
+    name: 🧹 Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: 🐘 Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-home-cache-cleanup: true
+
+      - name: 🔑 Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: 🧹 Run Android Lint
+        run: ./gradlew lintDebug --stacktrace
+
+      - name: 📊 Upload Lint Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          retention-days: 14
+
+      - name: 💬 Annotate PR with Lint Issues
+        if: github.event_name == 'pull_request' && always()
+        uses: yutailang0119/action-android-lint@v4
+        with:
+          report-path: 'app/build/reports/lint-results-debug.xml'
+        continue-on-error: true
+
+  # ─────────────────────────────────────────────
+  # JOB 2: Unit Tests
+  # ─────────────────────────────────────────────
+  test:
+    name: 🧪 Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: 🐘 Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 🔑 Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: 🧪 Run Unit Tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: 📊 Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
+
+      - name: 🔖 Publish Test Report
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: '**/build/test-results/testDebugUnitTest/TEST-*.xml'
+          check_name: 'Unit Test Results'
+          fail_on_failure: true
+
+  # ─────────────────────────────────────────────
+  # JOB 3: Build Debug APK
+  # ─────────────────────────────────────────────
+  build-debug:
+    name: 🔨 Build Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [lint, test]
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: 🐘 Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 🔑 Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: 🔨 Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: 📦 Rename APK with commit SHA
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             artifacts/StreamTV-debug-${{ github.sha }}.apk
+
+      - name: 📤 Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk-${{ github.sha }}
+          path: artifacts/StreamTV-debug-${{ github.sha }}.apk
+          retention-days: 7
+
+      - name: 💬 Comment APK on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes('Debug APK'));
+            const body = `## 📦 Debug APK Build\n\n✅ Build succeeded for commit \`${{ github.sha }}\`\n\nDownload the APK from the [Actions artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) page.\n\n> Artifact: \`debug-apk-${{ github.sha }}\` (expires in 7 days)`;
+            if (botComment) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: botComment.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
+
+  # ─────────────────────────────────────────────
+  # JOB 4: CI Status Summary
+  # ─────────────────────────────────────────────
+  ci-status:
+    name: ✅ CI Status
+    runs-on: ubuntu-latest
+    needs: [lint, test, build-debug]
+    if: always()
+
+    steps:
+      - name: ✅ All checks passed
+        if: needs.lint.result == 'success' && needs.test.result == 'success' && needs.build-debug.result == 'success'
+        run: echo "🎉 All CI checks passed!"
+
+      - name: ❌ Some checks failed
+        if: needs.lint.result == 'failure' || needs.test.result == 'failure' || needs.build-debug.result == 'failure'
+        run: |
+          echo "❌ CI failed:"
+          echo "  Lint:        ${{ needs.lint.result }}"
+          echo "  Tests:       ${{ needs.test.result }}"
+          echo "  Build Debug: ${{ needs.build-debug.result }}"
+          exit 1

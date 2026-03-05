@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/homeFragment">
+
+    <!-- Home -->
+    <fragment
+        android:id="@+id/homeFragment"
+        android:name="com.streamtv.app.ui.home.HomeFragment"
+        android:label="Home"
+        tools:layout="@layout/fragment_home">
+        <action
+            android:id="@+id/action_home_to_channels"
+            app:destination="@id/channelsFragment" />
+        <action
+            android:id="@+id/action_home_to_settings"
+            app:destination="@id/settingsFragment" />
+        <action
+            android:id="@+id/action_home_to_player"
+            app:destination="@id/playerActivity" />
+    </fragment>
+
+    <!-- Channels -->
+    <fragment
+        android:id="@+id/channelsFragment"
+        android:name="com.streamtv.app.ui.channels.ChannelsFragment"
+        android:label="Channels"
+        tools:layout="@layout/fragment_channels">
+        <action
+            android:id="@+id/action_channels_to_player"
+            app:destination="@id/playerActivity" />
+    </fragment>
+
+    <!-- Favorites -->
+    <fragment
+        android:id="@+id/favoritesFragment"
+        android:name="com.streamtv.app.ui.home.FavoritesFragment"
+        android:label="Favorites" />
+
+    <!-- Settings -->
+    <fragment
+        android:id="@+id/settingsFragment"
+        android:name="com.streamtv.app.ui.settings.SettingsFragment"
+        android:label="Settings"
+        tools:layout="@layout/fragment_settings" />
+
+    <!-- Player Activity -->
+    <activity
+        android:id="@+id/playerActivity"
+        android:name="com.streamtv.app.ui.player.PlayerActivity"
+        android:label="Player">
+        <argument
+            android:name="extra_channel"
+            app:argType="com.streamtv.app.data.model.Channel" />
+    </activity>
+
+</navigation>

@@ -1,0 +1,365 @@
+name: 🚀 Release — Sign, Build & Publish
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'        # v1.2.3
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+' # v1.2.3-rc1
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta[0-9]+' # v1.2.3-beta1
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: 'Mark as pre-release?'
+        type: boolean
+        default: false
+      release_notes:
+        description: 'Release notes (optional)'
+        required: false
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DISTRIBUTION: 'temurin'
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+
+jobs:
+  # ─────────────────────────────────────────────
+  # JOB 1: Validate & Prepare
+  # ─────────────────────────────────────────────
+  prepare:
+    name: 🔖 Prepare Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔖 Extract version info
+        id: version
+        run: |
+          # Get tag from push event or manual input
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+          # Strip leading 'v'
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Generate version code from semver (major * 10000 + minor * 100 + patch)
+          MAJOR=$(echo "$VERSION" | cut -d. -f1 | tr -dc '0-9')
+          MINOR=$(echo "$VERSION" | cut -d. -f2 | tr -dc '0-9')
+          PATCH=$(echo "$VERSION" | cut -d. -f3 | cut -d- -f1 | tr -dc '0-9')
+          VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+
+          # Detect pre-release
+          if [[ "$TAG" == *"-rc"* ]] || [[ "$TAG" == *"-beta"* ]] || [[ "$TAG" == *"-alpha"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "✅ Tag: $TAG | Version: $VERSION | Code: $VERSION_CODE"
+
+  # ─────────────────────────────────────────────
+  # JOB 2: Run Tests before Release
+  # ─────────────────────────────────────────────
+  test:
+    name: 🧪 Pre-release Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: 🐘 Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 🔑 Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: 🧹 Lint Release
+        run: ./gradlew lintRelease --stacktrace
+
+      - name: 🧪 Run Unit Tests
+        run: ./gradlew testReleaseUnitTest --stacktrace
+
+  # ─────────────────────────────────────────────
+  # JOB 3: Build & Sign Release
+  # ─────────────────────────────────────────────
+  build-release:
+    name: 🔐 Build & Sign Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: [prepare, test]
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: 🐘 Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 🔑 Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: 🔐 Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/release.keystore
+          echo "✅ Keystore decoded"
+
+      - name: 📝 Update version in build.gradle.kts
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VERSION_CODE="${{ needs.prepare.outputs.version_code }}"
+          sed -i "s/versionCode = [0-9]*/versionCode = $VERSION_CODE/" app/build.gradle.kts
+          sed -i "s/versionName = \"[^\"]*\"/versionName = \"$VERSION\"/" app/build.gradle.kts
+          echo "✅ Updated to version $VERSION ($VERSION_CODE)"
+
+      - name: 🏗️ Build Release APK
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=${{ github.workspace }}/release.keystore \
+            -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} \
+            --stacktrace
+
+      - name: 📦 Build Release AAB (Google Play)
+        run: |
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=${{ github.workspace }}/release.keystore \
+            -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} \
+            --stacktrace
+
+      - name: 🏷️ Rename & Stage artifacts
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          mkdir -p release-artifacts
+
+          # APK
+          cp app/build/outputs/apk/release/app-release.apk \
+             release-artifacts/StreamTV-$VERSION.apk
+
+          # AAB
+          cp app/build/outputs/bundle/release/app-release.aab \
+             release-artifacts/StreamTV-$VERSION.aab
+
+          echo "📦 Artifacts:"
+          ls -lh release-artifacts/
+
+      - name: 🔍 Verify APK signature
+        run: |
+          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools/ | tail -1)/apksigner verify \
+            --verbose release-artifacts/StreamTV-${{ needs.prepare.outputs.version }}.apk \
+            && echo "✅ APK signature verified"
+
+      - name: 📤 Upload Release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-${{ needs.prepare.outputs.version }}
+          path: release-artifacts/StreamTV-${{ needs.prepare.outputs.version }}.apk
+          retention-days: 90
+
+      - name: 📤 Upload Release AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-aab-${{ needs.prepare.outputs.version }}
+          path: release-artifacts/StreamTV-${{ needs.prepare.outputs.version }}.aab
+          retention-days: 90
+
+      - name: 🧹 Cleanup keystore
+        if: always()
+        run: rm -f ${{ github.workspace }}/release.keystore
+
+  # ─────────────────────────────────────────────
+  # JOB 4: Generate Changelog
+  # ─────────────────────────────────────────────
+  changelog:
+    name: 📝 Generate Changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [prepare]
+    outputs:
+      changelog: ${{ steps.changelog.outputs.changelog }}
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📝 Generate Changelog from Git log
+        id: changelog
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          
+          # Get previous tag
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "$TAG" | head -1)
+          
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="HEAD"
+            echo "No previous tag found, using full history"
+          else
+            RANGE="$PREV_TAG..$TAG"
+            echo "Generating changelog from $PREV_TAG to $TAG"
+          fi
+
+          # Categorize commits
+          FEATURES=$(git log $RANGE --oneline --pretty=format:"- %s" | grep -E "^- (feat|feature|add|new)" | head -20 || true)
+          FIXES=$(git log $RANGE --oneline --pretty=format:"- %s" | grep -E "^- (fix|bug|patch|hotfix)" | head -20 || true)
+          IMPROVEMENTS=$(git log $RANGE --oneline --pretty=format:"- %s" | grep -E "^- (refactor|perf|improve|update|chore|docs)" | head -20 || true)
+
+          # Build changelog
+          CHANGELOG="## 📋 What's Changed\n\n"
+          
+          if [ -n "$FEATURES" ]; then
+            CHANGELOG+="### ✨ New Features\n$FEATURES\n\n"
+          fi
+          if [ -n "$FIXES" ]; then
+            CHANGELOG+="### 🐛 Bug Fixes\n$FIXES\n\n"
+          fi
+          if [ -n "$IMPROVEMENTS" ]; then
+            CHANGELOG+="### 🔧 Improvements\n$IMPROVEMENTS\n\n"
+          fi
+
+          # All commits fallback
+          ALL_COMMITS=$(git log $RANGE --oneline --pretty=format:"- %s (%h)" | head -30)
+          if [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$IMPROVEMENTS" ]; then
+            CHANGELOG+="### 📦 Commits\n$ALL_COMMITS\n\n"
+          fi
+
+          # Manual release notes override
+          if [ -n "${{ github.event.inputs.release_notes }}" ]; then
+            CHANGELOG="${{ github.event.inputs.release_notes }}\n\n---\n\n$CHANGELOG"
+          fi
+
+          CHANGELOG+="**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
+
+          # Write to file and output
+          echo -e "$CHANGELOG" > changelog.md
+          
+          # Escape for GitHub output
+          {
+            echo 'changelog<<EOF'
+            echo -e "$CHANGELOG"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+          echo "✅ Changelog generated"
+          cat changelog.md
+
+  # ─────────────────────────────────────────────
+  # JOB 5: Create GitHub Release
+  # ─────────────────────────────────────────────
+  create-release:
+    name: 🎉 Create GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [prepare, build-release, changelog]
+    permissions:
+      contents: write
+
+    steps:
+      - name: 📥 Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-apk-${{ needs.prepare.outputs.version }}
+          path: release-artifacts/
+
+      - name: 📥 Download AAB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-aab-${{ needs.prepare.outputs.version }}
+          path: release-artifacts/
+
+      - name: 📊 Generate artifact checksums
+        run: |
+          cd release-artifacts
+          sha256sum * > SHA256SUMS.txt
+          echo "📋 Checksums:"
+          cat SHA256SUMS.txt
+
+      - name: 🎉 Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: "StreamTV ${{ needs.prepare.outputs.version }}"
+          body: ${{ needs.changelog.outputs.changelog }}
+          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
+          draft: false
+          make_latest: ${{ needs.prepare.outputs.is_prerelease == 'false' }}
+          files: |
+            release-artifacts/StreamTV-${{ needs.prepare.outputs.version }}.apk
+            release-artifacts/StreamTV-${{ needs.prepare.outputs.version }}.aab
+            release-artifacts/SHA256SUMS.txt
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────
+  # JOB 6: Notify on completion
+  # ─────────────────────────────────────────────
+  notify:
+    name: 📣 Notify
+    runs-on: ubuntu-latest
+    needs: [prepare, create-release]
+    if: always()
+
+    steps:
+      - name: ✅ Release Success Notification
+        if: needs.create-release.result == 'success'
+        run: |
+          echo "🎉 StreamTV ${{ needs.prepare.outputs.version }} released successfully!"
+          echo "📦 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare.outputs.tag }}"
+
+      - name: 📣 Notify Slack on Success
+        if: needs.create-release.result == 'success' && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data '{
+              "text": "🚀 *StreamTV ${{ needs.prepare.outputs.version }}* released!\n<https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare.outputs.tag }}|View Release>"
+            }'
+
+      - name: ❌ Release Failed
+        if: needs.create-release.result == 'failure' || needs.build-release.result == 'failure'
+        run: |
+          echo "❌ Release pipeline failed!"
+          echo "  Build: ${{ needs.build-release.result }}"
+          echo "  Release: ${{ needs.create-release.result }}"
+          exit 1

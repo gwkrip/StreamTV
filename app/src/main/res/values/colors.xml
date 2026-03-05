@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand Colors -->
+    <color name="primary">#6C63FF</color>
+    <color name="primary_dark">#5349D6</color>
+    <color name="primary_light">#9D97FF</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="primary_container">#2D2855</color>
+    <color name="on_primary_container">#CCC9FF</color>
+
+    <color name="secondary">#03DAC6</color>
+    <color name="on_secondary">#000000</color>
+
+    <color name="accent_red">#FF4F4F</color>
+    <color name="accent_orange">#FF8C42</color>
+    <color name="accent_green">#4CAF50</color>
+
+    <!-- Backgrounds -->
+    <color name="background">#0F0F1A</color>
+    <color name="surface">#1A1A2E</color>
+    <color name="surface_variant">#242444</color>
+    <color name="outline">#383860</color>
+
+    <!-- Text -->
+    <color name="on_surface">#FFFFFF</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#9999BB</color>
+    <color name="text_hint">#666688</color>
+
+    <!-- Navigation -->
+    <color name="nav_active">#6C63FF</color>
+    <color name="nav_inactive">#9999BB</color>
+
+    <!-- Chip -->
+    <color name="chip_bg_active">#6C63FF</color>
+    <color name="chip_bg_inactive">#242444</color>
+</resources>
